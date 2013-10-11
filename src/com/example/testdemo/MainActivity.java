@@ -1,5 +1,8 @@
 package com.example.testdemo;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.util.Log;
@@ -27,9 +30,8 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 	
 	GeoPoint gleft_top = null; //左上角点
 	GeoPoint centerpoint = null; //中心点
-	GeoPoint another_point = null; //别的点
-	GeoSize mPointGeoSize = null; //自己和别的点的距离
-	
+	List<GeoPoint> point_list = null; //点集
+	GeoSize mLongestDistance = null; //自己和别的点的最远距离
 	class GeoSize{
 	  int width_half; //经纬度宽
 	  int height_half;//经纬度宽
@@ -39,17 +41,10 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 	protected void onCreate(Bundle savedInstanceState){
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
+		
 		mMapView=(MyMapView)findViewById(R.id.bmapsView);  
 		mMapView.setBuiltInZoomControls(true);  
-		//设置启用内置的缩放控件  
 		mMapController=mMapView.getController();  
-		// 得到mMapView的控制权,可以用它控制和驱动平移和缩放  
-		centerpoint =new GeoPoint((int)(22.61667* 1E6),(int)(114.06667 * 1E6));  //深圳
-		another_point =new GeoPoint((int)(23.02* 1E6),(int)(113.45 * 1E6));//东莞
-		//取得另外一个点和中心点的距离
-		mPointGeoSize  = getGWidthGHeight(centerpoint,another_point);
-		//用给定的经纬度构造一个GeoPoint，单位是微度 (度 * 1E6)  
-		mMapController.setCenter(centerpoint);//设置地图中心点  
 		mMapController.setZoom(zoomLevel);//设置地图zoom级别  
 		
 		mMapView.setIBMapOnClickListener(this);//设置监听
@@ -66,11 +61,49 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 		
 		mMapView.getOverlays().add(itemOverlay);
 		
-		//现在所有准备工作已准备好，使用以下方法管理overlay.   
-		//添加overlay, 当批量添加Overlay时使用addItem(List<OverlayItem>)效率更高   
-		itemOverlay.addItem(new OverlayItem(centerpoint,"item1","item1"));
-		itemOverlay.addItem(new OverlayItem(another_point,"item2","item2"));
+		
+		point_list = new ArrayList<GeoPoint>(); //存放其他点
+	    centerpoint =new GeoPoint((int)(22.61667* 1E6),(int)(114.06667 * 1E6));  //深圳- 中心位置
+	    
+	    mMapController.setCenter(centerpoint);//设置地图中心点
+	    
+		GeoPoint dongguan =new GeoPoint((int)(23.02* 1E6),(int)(113.45 * 1E6));//东莞
+		GeoPoint heyuan =new GeoPoint((int)( 23.43* 1E6),(int)(114.41 * 1E6));//河源 
+		GeoPoint qingyuan =new GeoPoint((int)( 23.42* 1E6),(int)(113.01 * 1E6));//清远
+		
+		point_list.add(centerpoint);
+		point_list.add(dongguan);
+		point_list.add(heyuan);
+		point_list.add(qingyuan);
+		mLongestDistance = getLongestDistance(point_list); 
+		
+		for(GeoPoint point : point_list){ //将其他点加入到地图
+			itemOverlay.addItem(new OverlayItem(point,"item2","item2"));
+		}
 		mMapView.refresh();
+	}
+	//寻找最远横向距离
+	GeoSize getLongestDistance(List<GeoPoint> another_point_list){
+		int width;
+		int height;
+		GeoSize mGeoSizeLast = getGWidthGHeight(another_point_list.get(0),centerpoint); //第一个点和中心点的距离
+		width = mGeoSizeLast.width_half;
+		height = mGeoSizeLast.height_half;
+		
+		for(int i=1;i<another_point_list.size();i++){
+			GeoSize temp = getGWidthGHeight(another_point_list.get(i),centerpoint);
+			if(temp.width_half > width){ //寻找最长横向距离
+				width = temp.width_half;
+			}
+			if(temp.height_half > height){ //寻找最长纵向距离
+				height = temp.height_half;
+			}
+		}
+		GeoSize mGeoSize = new GeoSize();
+		mGeoSize.width_half = width;
+		mGeoSize.height_half = height;
+		log("getLongestDistance width:"+width+" height:"+height);
+		return mGeoSize;
 	}
     //得到两点之间的横纵距离
 	GeoSize getGWidthGHeight(GeoPoint leftTop, GeoPoint center){
@@ -79,13 +112,16 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 		mGeoSize.width_half = Math.abs(leftTop.getLongitudeE6() - center.getLongitudeE6()); 
 		return mGeoSize;
 	}
-	//是否在屏幕显示区域
+	//是否在屏幕显示区域(屏幕大小,大小)
 	boolean inRange(GeoSize mScreenGeoSize,GeoSize mPointGeoSize){
-		if(mPointGeoSize.width_half > mScreenGeoSize.width_half &&
-		   mPointGeoSize.height_half > mScreenGeoSize.height_half){
-			return false;
-		}else{
+		log(String.format("inRange(%s,%s)", mScreenGeoSize.width_half,mScreenGeoSize.height_half));
+		log(String.format("inRange(%s,%s)", mPointGeoSize.width_half,mPointGeoSize.height_half));
+		log("");
+		if(mScreenGeoSize.width_half > mPointGeoSize.width_half &&
+			mScreenGeoSize.height_half > mPointGeoSize.height_half){
 			return true;
+		}else{
+			return false;
 		}
 	}
 	@Override
@@ -159,14 +195,13 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 						runningThread = true;
 						while(true){
 							gleft_top = mMapView.getProjection().fromPixels((int)0, (int)0);//左上角经纬度
-							//取得中心和上下左右的距离
-							GeoSize mScreenGeoSize =  getGWidthGHeight(gleft_top,centerpoint);
-							if (inRange(mScreenGeoSize, mPointGeoSize)) { // 屏幕范围内
-								log("inRange "+this.currentThread().getId());
+							GeoSize mScreenGeoSize =  getGWidthGHeight(gleft_top,centerpoint);//取得中心和上下左右的距离
+							if (inRange(mScreenGeoSize, mLongestDistance)) { // 屏幕范围内,ok
+								log("inRange threadId:"+this.currentThread().getId());
 								break;
 							} else { // 范围外
-								log("NotInRange "+this.currentThread().getId());
-								--zoomLevel; //缩小地图
+								log("NotInRange threadId:"+this.currentThread().getId());
+								--zoomLevel; //缩小地图:直到位于屏幕范围内
 								if (zoomLevel < 0) {
 									break;
 								}
@@ -181,11 +216,11 @@ public class MainActivity extends BaseActivity implements IBMapOnClickListener{
 							}
 						}
 						//再次缩小,才能显示
-						if(zoomLevel-1>=0){
+						/*if(zoomLevel-1>=0){
 							--zoomLevel;
 							mMapController.setZoom(zoomLevel);
 							mMapView.refresh();
-						}
+						}*/
 						runningThread = false;
 				};
 			}
